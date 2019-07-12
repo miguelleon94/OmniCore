@@ -1,4 +1,5 @@
-﻿using System;
+﻿using OmniCore.Model.Interfaces.Data;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Text;
@@ -9,6 +10,8 @@ namespace OmniCore.Model.Interfaces
 {
     public interface IMessageExchangeProgress : INotifyPropertyChanged
     {
+        IConversation Conversation { get; }
+
         string ActionText { get; set; }
 
         bool CanBeCanceled { get; set; }
@@ -19,7 +22,6 @@ namespace OmniCore.Model.Interfaces
 
         int Progress { get; set; }
 
-        IMessageExchangeStatistics Statistics { get; set; }
         IMessageExchangeResult Result { get; set; }
 
         CancellationToken Token { get; }

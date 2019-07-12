@@ -1,105 +1,77 @@
-﻿using OmniCore.Model.Interfaces;
+﻿using OmniCore.Mobile.Base;
+using OmniCore.Model.Interfaces;
+using OmniCore.Model.Interfaces.Data;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace OmniCore.Mobile.ViewModels
 {
-    public class BaseViewModel : INotifyPropertyChanged, IDisposable
+    public abstract class BaseViewModel : PropertyChangedImpl, IDisposable
     {
-        private IPod pod;
-        public IPod Pod { get => pod; set => SetProperty(ref pod, value) ; }
+        protected PropertyChangedDependencyHandler DependencyHandler;
+        public IPod Pod { get; set; }
+
+        [DependencyPath(nameof(Pod), nameof(IPod.ActiveConversation), nameof(IConversation.IsFinished))]
+        public bool PodExistsAndNotBusy
+        {
+            get
+            {
+                return Pod != null
+                    && (Pod.ActiveConversation == null || Pod.ActiveConversation.IsFinished);
+            }
+        }
+
+        [DependencyPath(nameof(Pod), nameof(IPod.ActiveConversation), nameof(IConversation.IsFinished))]
+        public bool PodNotBusy
+        {
+            get
+            {
+                return (Pod?.ActiveConversation == null || Pod.ActiveConversation.IsFinished);
+            }
+        }
 
         public BaseViewModel()
         {
-            App.Instance.PodProvider.PodChanged += PodProvider_PodChanged;
-            AttachToCurrentPod();
+        }
+
+        protected abstract void OnDisposeManagedResources();
+
+        protected abstract Task<BaseViewModel> BindData();
+
+        public async Task<BaseViewModel> DataBind()
+        {
+            DependencyHandler = new PropertyChangedDependencyHandler(this);
+            Pod = App.Instance.PodProvider.PodManager?.Pod;
+            await BindData();
+            return this;
         }
 
         private void PodProvider_PodChanged(object sender, EventArgs e)
         {
-            AttachToCurrentPod();
-        }
-
-        private void AttachToCurrentPod()
-        {
-            if (Pod != null)
+            if (App.Instance.PodProvider.PodManager != null)
             {
-                Pod.PropertyChanged -= Pod_PropertyChanged;
-            }
-
-            if (App.Instance.PodProvider.Current != null)
-            {
-                Pod = App.Instance.PodProvider.Current.Pod;
-                Pod.PropertyChanged += Pod_PropertyChanged;
+                Pod = App.Instance.PodProvider.PodManager?.Pod;
             }
             else
             {
                 Pod = null;
             }
-            OnPodPropertyChanged(this, new PropertyChangedEventArgs(string.Empty));
-        }
-
-        private void Pod_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            OnPodPropertyChanged(sender, e);
-        }
-
-        protected virtual void OnPodPropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-        }
-
-        bool isBusy = false;
-        public bool IsBusy
-        {
-            get { return isBusy; }
-            set { SetProperty(ref isBusy, value); }
-        }
-
-        string title = string.Empty;
-        public string Title
-        {
-            get { return title; }
-            set { SetProperty(ref title, value); }
-        }
-
-        protected bool SetProperty<T>(ref T backingStore, T value,
-            [CallerMemberName]string propertyName = "",
-            Action onChanged = null)
-        {
-            if (EqualityComparer<T>.Default.Equals(backingStore, value))
-                return false;
-
-            backingStore = value;
-            onChanged?.Invoke();
-            OnPropertyChanged(propertyName);
-            return true;
-        }
-
-        public event PropertyChangedEventHandler PropertyChanged;
-        protected void OnPropertyChanged([CallerMemberName] string propertyName = "")
-        {
-            var changed = PropertyChanged;
-            if (changed == null)
-                return;
-
-            changed.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            OnPropertyChanged(nameof(PodExistsAndNotBusy));
+            OnPropertyChanged(nameof(PodNotBusy));
         }
 
         private bool disposedValue = false; // To detect redundant calls
-        protected virtual void Dispose(bool disposing)
+        protected void Dispose(bool disposing)
         {
             if (!disposedValue)
             {
                 if (disposing)
                 {
-                    App.Instance.PodProvider.PodChanged -= PodProvider_PodChanged;
-                    if (Pod != null)
-                    {
-                        Pod.PropertyChanged -= Pod_PropertyChanged;
-                    }
+                    DependencyHandler?.Dispose();
+                    App.Instance.PodProvider.ManagerChanged -= PodProvider_PodChanged;
+                    OnDisposeManagedResources();
                 }
 
                 // TODO: free unmanaged resources (unmanaged objects) and override a finalizer below.
@@ -124,5 +96,6 @@ namespace OmniCore.Mobile.ViewModels
             // TODO: uncomment the following line if the finalizer is overridden above.
             // GC.SuppressFinalize(this);
         }
+
     }
 }

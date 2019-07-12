@@ -9,9 +9,13 @@ using Android.OS;
 using Android.Runtime;
 using Android.Views;
 using Android.Widget;
-using OmniCore.Mobile.Interfaces;
+using OmniCore.Mobile.Base.Interfaces;
+using Xamarin.Forms;
+using OmniCore.Model.Utilities;
+using OmniCore.Mobile.Base;
+using Microsoft.AppCenter.Crashes;
 
-namespace OmniCore.Mobile.Droid
+namespace OmniCore.Mobile.Android
 {
     public class RemoteRequestPublisher : IRemoteRequestPublisher
     {
@@ -21,9 +25,17 @@ namespace OmniCore.Mobile.Droid
         {
             foreach(var subscriber in Subscribers)
             {
-                var result = await subscriber.OnRequestReceived(request);
-                if (!string.IsNullOrEmpty(result))
-                    return result;
+                try
+                {
+                    var result = await subscriber.OnRequestReceived(request);
+                    if (!string.IsNullOrEmpty(result))
+                        return result;
+                }
+                catch(Exception e)
+                {
+                    OmniCoreServices.Logger.Error("Error executing on request received", e);
+                    Crashes.TrackError(e);
+                }
             }
             return null;
         }

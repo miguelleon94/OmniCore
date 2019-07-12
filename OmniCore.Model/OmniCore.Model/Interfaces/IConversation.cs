@@ -1,4 +1,5 @@
 ﻿using OmniCore.Model.Enums;
+using OmniCore.Model.Interfaces.Data;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -10,6 +11,11 @@ namespace OmniCore.Model.Interfaces
 {
     public interface IConversation : INotifyPropertyChanged, IDisposable
     {
+        DateTimeOffset Started { get; set; }
+        DateTimeOffset? Ended { get; set; }
+        string Intent { get; set; }
+        IMessageExchangeStatistics CombinedStatistics { get; set; }
+
         bool CanCancel { get; set; }
         bool IsRunning { get; set; }
         bool IsFinished { get; set; }
@@ -19,8 +25,9 @@ namespace OmniCore.Model.Interfaces
         bool Failed { get; set; }
         bool Canceled { get; set; }
 
-        IMessageExchangeProgress NewExchange();
-        IMessageExchangeProgress CurrentExchangeProgress { get; }
+        IMessageExchangeProgress NewExchange(IMessage requestMessage);
+        RequestSource RequestSource { get; set; }
+        IMessageExchangeProgress CurrentExchange { get; set; }
 
         CancellationToken Token { get; }
         Task<bool> Cancel();

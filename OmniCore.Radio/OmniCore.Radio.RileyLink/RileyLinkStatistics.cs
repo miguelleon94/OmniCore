@@ -1,10 +1,15 @@
-﻿using OmniCore.Model.Enums;
+﻿using OmniCore.Model;
+using OmniCore.Model.Enums;
 using OmniCore.Model.Interfaces;
 using OmniCore.Model.Utilities;
+using SQLite;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using System.Linq;
+using OmniCore.Model.Eros;
+using OmniCore.Model.Eros.Data;
 
 namespace OmniCore.Radio.RileyLink
 {
@@ -21,62 +26,63 @@ namespace OmniCore.Radio.RileyLink
         public int ReceiveTimeout { get; set; }
 
         public int RadioErrors { get; set; }
-
-        public int AverageRssi { get => RssiTotal / RssiCount; }
-
-        public int RssiTotal { get; set; }
-
-        public int RssiCount { get; set; }
-
     }
 
-    public class RileyLinkStatistics : IMessageExchangeStatistics
+    public class RileyLinkStatistics : ErosMessageExchangeStatistics
     {
-        public int QueueWaitDuration { get; set; }
-
-        public int ExchangeDuration { get; set; }
-
-        public int TotalRadioOverhead { get; set; }
-
-        public int PacketExchangeCount { get; set; }
-
-        public int PacketExchangeDurationAverage { get; set; }
-
-        public int PacketExchangeDurationMin { get; set; }
-
-        public int PacketExchangeDurationMax { get; set; }
-
-        public int PodRssiAverage { get; set; }
-
-        public int RadioRssiAverage { get => radioRssiTotal / radioRssiCount; }
-
-
-
         private int started;
+        private int startedME;
+        private int endedME;
+
+        List<RileyLinkPeStats> AllPeStats;
+        RileyLinkPeStats currentPeStats = new RileyLinkPeStats();
+        private int peStart;
+        private int peEnd;
+
+        int radioRssiCount = 0;
+        int radioRssiTotal = 0;
+
+        private TxPower currentTxPower = TxPower.A4_Normal;
+
         public RileyLinkStatistics()
         {
             started = Environment.TickCount;
             AllPeStats = new List<RileyLinkPeStats>();
         }
 
-        private int startedME;
-        private int endedME;
+        public override void BeforeSave()
+        {
+            endedME = Environment.TickCount;
+            QueueWaitDuration = startedME - started;
+
+            if (!AllPeStats.Contains(currentPeStats))
+                AllPeStats.Add(currentPeStats);
+
+            PacketExchangeCount = AllPeStats.Count;
+            PacketExchangeDurationAverage = (int)AllPeStats.Select(x => (double)x.ExchangeDuration).Average();
+
+            var errs = 0;
+            foreach (var peStat in AllPeStats)
+            {
+                errs += peStat.BadPackets;
+                errs += peStat.ReceiveTimeout;
+                errs += peStat.RadioErrors;
+            }
+
+            PacketErrors = errs;
+        }
+
         internal void StartMessageExchange()
         {
             startedME = Environment.TickCount;
-            QueueWaitDuration = startedME - started;
         }
 
         internal void EndMessageExchange()
         {
-            endedME = Environment.TickCount;
-            ExchangeDuration = endedME - startedME;
         }
 
         internal void ExitPrematurely()
         {
-            endedME = Environment.TickCount;
-            ExchangeDuration = endedME - startedME;
         }
 
         private int radioOverheadStart;
@@ -90,11 +96,6 @@ namespace OmniCore.Radio.RileyLink
             TotalRadioOverhead += Environment.TickCount - radioOverheadStart;
         }
 
-        List<RileyLinkPeStats> AllPeStats;
-
-        RileyLinkPeStats currentPeStats = new RileyLinkPeStats();
-        private int peStart;
-        private int peEnd;
         internal void StartPacketExchange()
         {
             currentPeStats = new RileyLinkPeStats();
@@ -115,11 +116,10 @@ namespace OmniCore.Radio.RileyLink
 
         void GetRssi(RadioPacket p)
         {
-            if (p.Rssi != 0)
-            {
-                currentPeStats.RssiCount++;
-                currentPeStats.RssiTotal = (int)p.Rssi;
-            }
+            radioRssiCount++;
+            var rssi = (p.Rssi >> 1) - 74; // http://www.ti.com/lit/an/swra114d/swra114d.pdf
+            radioRssiTotal += rssi;
+            RadioRssiAverage = radioRssiTotal / radioRssiCount;
         }
 
         internal void RepeatPacketReceived(RadioPacket p)
@@ -135,6 +135,7 @@ namespace OmniCore.Radio.RileyLink
 
         internal void UnexpectedPacketReceived(RadioPacket p)
         {
+            GetRssi(p);
         }
 
         internal void NoPacketReceived()
@@ -178,19 +179,26 @@ namespace OmniCore.Radio.RileyLink
         {
         }
 
-        int radioRssiCount = 0;
-        int radioRssiTotal = 0;
-        internal void RadioRssiReported(int rssi)
+        int mobileRssiCount = 0;
+        int mobileRssiTotal = 0;
+
+        internal void MobileDeviceRssiReported(int rssi)
         {
-            if (rssi != 0)
+            lock (this)
             {
-                radioRssiCount++;
-                radioRssiTotal += rssi;
+                if (rssi != 0)
+                {
+                    mobileRssiCount++;
+                    mobileRssiTotal += rssi;
+                    MobileDeviceRssiAverage = mobileRssiTotal / mobileRssiCount;
+                }
             }
         }
 
         internal void RadioTxLevelChange(TxPower txPower)
         {
+            currentTxPower = txPower;
+            PowerAdjustmentCount++;
         }
 
         internal void RadioConnnected()

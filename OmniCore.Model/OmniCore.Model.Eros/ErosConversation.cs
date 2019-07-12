@@ -1,6 +1,11 @@
-﻿using OmniCore.Model.Enums;
+﻿using OmniCore.Mobile.Base;
+using OmniCore.Mobile.Base.Interfaces;
+using OmniCore.Model.Enums;
+using OmniCore.Model.Eros.Data;
 using OmniCore.Model.Exceptions;
 using OmniCore.Model.Interfaces;
+using OmniCore.Model.Interfaces.Data;
+using OmniCore.Model.Utilities;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -10,8 +15,13 @@ using System.Threading.Tasks;
 
 namespace OmniCore.Model.Eros
 {
-    public class ErosConversation : IConversation
+    public class ErosConversation : PropertyChangedImpl, IConversation
     {
+        public DateTimeOffset Started { get; set; }
+        public DateTimeOffset? Ended { get; set; }
+        public string Intent { get; set; }
+        public IMessageExchangeStatistics CombinedStatistics { get; set; }
+
         public bool CanCancel { get; set; }
 
         public bool IsRunning { get; set; }
@@ -21,6 +31,7 @@ namespace OmniCore.Model.Eros
         public bool Canceled { get; set; }
 
         public FailureType FailureType { get; set; }
+        public RequestSource RequestSource { get; set; }
 
         public Exception Exception
         {
@@ -34,23 +45,29 @@ namespace OmniCore.Model.Eros
                 var oe = value as OmniCoreException;
                 FailureType = oe?.FailureType ?? FailureType.Unknown;
                 exception = value;
+                OnPropertyChanged(nameof(this.Exception));
             }
         }
 
+        public IMessageExchangeProgress CurrentExchange { get; set; }
+
         public CancellationToken Token => CancellationTokenSource.Token;
-        public event PropertyChangedEventHandler PropertyChanged;
 
-        public IMessageExchangeProgress CurrentExchangeProgress { get; private set; }
-
+        private IPod Pod;
         private Exception exception;
         private readonly SemaphoreSlim ConversationMutex;
+        private readonly IWakeLock WakeLock;
         private readonly CancellationTokenSource CancellationTokenSource;
         private TaskCompletionSource<bool> CancellationCompletion;
 
-        public ErosConversation(SemaphoreSlim conversationMutex)
+        public ErosConversation(SemaphoreSlim conversationMutex, IWakeLock wakeLock, IPod pod)
         {
+            WakeLock = wakeLock;
             ConversationMutex = conversationMutex;
+            Pod = pod;
+            Started = DateTimeOffset.UtcNow;
             CancellationTokenSource = new CancellationTokenSource();
+            CombinedStatistics = new ErosMessageExchangeStatistics();
         }
 
         public async Task<bool> Cancel()
@@ -92,29 +109,34 @@ namespace OmniCore.Model.Eros
             }
         }
 
-        public IMessageExchangeProgress NewExchange()
+        public IMessageExchangeProgress NewExchange(IMessage requestMessage)
         {
-            if (CurrentExchangeProgress != null)
+            if (CurrentExchange != null)
             {
-                if (!CurrentExchangeProgress.Finished)
+                if (!CurrentExchange.Finished)
                 {
                     throw new OmniCoreWorkflowException(FailureType.WorkflowError, "Cannot start a new exchange while one is already running");
                 }
             }
-            CurrentExchangeProgress = new MessageExchangeProgress(this);
-            return CurrentExchangeProgress;
+            CurrentExchange = new MessageExchangeProgress(this, requestMessage.RequestType, requestMessage.Parameters);
+            return CurrentExchange;
         }
 
         #region IDisposable Support
         private bool disposedValue = false; // To detect redundant calls
+
         protected virtual void Dispose(bool disposing)
         {
             if (!disposedValue)
             {
                 if (disposing)
                 {
+                    IsFinished = true;
+                    Ended = DateTimeOffset.UtcNow;
                     ConversationMutex.Release();
+                    WakeLock.Release();
                     CancellationTokenSource.Dispose();
+                    //Pod.ActiveConversation = null;
                 }
 
                 // TODO: free unmanaged resources (unmanaged objects) and override a finalizer below.

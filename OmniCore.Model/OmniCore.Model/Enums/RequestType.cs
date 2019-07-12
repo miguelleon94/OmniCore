@@ -5,14 +5,19 @@
         AssignAddress,
         SetupPod,
         SetDeliveryFlags,
+        PrimeCannula,
+        InsertCannula,
         Status,
         AcknowledgeAlerts,
         ConfigureAlerts,
         SetBasalSchedule,
+        CancelBasal,
         SetTempBasal,
         Bolus,
         CancelBolus,
         CancelTempBasal,
-        DeactivatePod
+        DeactivatePod,
+        StartExtendedBolus,
+        StopExtendedBolus
     }
 }
